@@ -14,7 +14,9 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
-use crate::config::{MAX_APP_NUM, MAX_SYSCALL_NUM};
+use core::usize;
+
+use crate::config::{MAX_APP_NUM};
 use crate::loader::{get_num_app, init_app_cx};
 use crate::sync::UPSafeCell;
 use crate::timer::get_time_us;
@@ -23,7 +25,7 @@ pub use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
 
 pub use context::TaskContext;
-
+pub use crate::syscall::*;
 /// The task manager, where all the tasks are managed.
 ///
 /// Functions implemented on `TaskManager` deals with all task state transitions
@@ -56,7 +58,7 @@ lazy_static! {
             task_cx: TaskContext::zero_init(),
             task_status: TaskStatus::UnInit,
             start_time: 0,
-            // syscall_times: [0; MAX_SYSCALL_NUM],
+            syscall_map: [0; 5],
         }; MAX_APP_NUM];
         for (i, t) in tasks.iter_mut().enumerate().take(num_app) {
             t.task_cx = TaskContext::goto_restore(init_app_cx(i));
@@ -83,7 +85,6 @@ impl TaskManager {
         let mut inner = self.inner.exclusive_access();
         let task0 = &mut inner.tasks[0];
         task0.task_status = TaskStatus::Running;
-        task0.start_time = get_time_us();
         let next_task_cx_ptr = &task0.task_cx as *const TaskContext;
         drop(inner);
         let mut _unused = TaskContext::zero_init();
@@ -126,12 +127,12 @@ impl TaskManager {
             let mut inner = self.inner.exclusive_access();
             let current = inner.current_task;
             inner.tasks[next].task_status = TaskStatus::Running;
-            inner.current_task = next;
-            let current_task_cx_ptr = &mut inner.tasks[current].task_cx as *mut TaskContext;
-            let next_task_cx_ptr = &inner.tasks[next].task_cx as *const TaskContext;
             if inner.tasks[next].start_time == 0 {
                 inner.tasks[next].start_time = get_time_us();
             }
+            inner.current_task = next;
+            let current_task_cx_ptr = &mut inner.tasks[current].task_cx as *mut TaskContext;
+            let next_task_cx_ptr = &inner.tasks[next].task_cx as *const TaskContext;
             drop(inner);
             // before this, we should drop local variables that must be dropped manually
             unsafe {
@@ -145,22 +146,29 @@ impl TaskManager {
 
     // LAB1: Try to implement your function to update or get task info!
     fn get_start_time(&self) -> usize {
-        let mut inner = self.inner.exclusive_access();
+        let inner = self.inner.exclusive_access();
         let current = inner.current_task;
         inner.tasks[current].start_time
     }
 
-    // fn get_syscall_times(&self) -> [u8; MAX_SYSCALL_NUM] {
-    //     let mut inner = self.inner.exclusive_access();
-    //     let current = inner.current_task;
-    //     inner.tasks[current].syscall_times
-    // }
+    fn get_syscall_map(&self) -> [u32; 5] {
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].syscall_map
+    }
 
-    // fn update_syscall_times(&self, id: usize) {
-    //     let mut inner = self.inner.exclusive_access();
-    //     let current = inner.current_task;
-    //     inner.tasks[current].syscall_times[id] += 1
-    // }
+    fn add_syscall_times(&self, id: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].syscall_map[match id {
+            SYSCALL_WRITE => 0,
+            SYSCALL_EXIT => 1,
+            SYSCALL_YIELD => 2,
+            SYSCALL_GET_TIME => 3,
+            SYSCALL_TASK_INFO => 4,
+            _ => unimplemented!(),
+        }] += 1;
+    }
 }
 
 /// Run the first task in task list.
@@ -200,4 +208,12 @@ pub fn exit_current_and_run_next() {
 // You may use TASK_MANAGER member functions to handle requests.
 pub fn get_start_time() -> usize {
     TASK_MANAGER.get_start_time()
+}
+
+pub fn get_syscall_map() -> [u32; 5] {
+    TASK_MANAGER.get_syscall_map()
+}
+
+pub fn add_syscall_times(id: usize) {
+    TASK_MANAGER.add_syscall_times(id)
 }
