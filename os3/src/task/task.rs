@@ -11,7 +11,7 @@ pub struct TaskControlBlock {
     pub task_cx: TaskContext,
     // LAB1: Add whatever you need about the Task.
     pub start_time: usize,
-    pub syscall_times: [u32; MAX_SYSCALL_NUM],
+    pub syscall_map: [u32; 5], // avoid kernel stack overflow
 }
 
 #[derive(Copy, Clone, PartialEq)]

@@ -16,7 +16,7 @@ mod task;
 
 use core::usize;
 
-use crate::config::{MAX_APP_NUM, MAX_SYSCALL_NUM};
+use crate::config::{MAX_APP_NUM};
 use crate::loader::{get_num_app, init_app_cx};
 use crate::sync::UPSafeCell;
 use crate::timer::get_time_us;
@@ -25,7 +25,7 @@ pub use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
 
 pub use context::TaskContext;
-
+pub use crate::syscall::*;
 /// The task manager, where all the tasks are managed.
 ///
 /// Functions implemented on `TaskManager` deals with all task state transitions
@@ -58,7 +58,7 @@ lazy_static! {
             task_cx: TaskContext::zero_init(),
             task_status: TaskStatus::UnInit,
             start_time: 0,
-            syscall_times: [0; MAX_SYSCALL_NUM],
+            syscall_map: [0; 5],
         }; MAX_APP_NUM];
         for (i, t) in tasks.iter_mut().enumerate().take(num_app) {
             t.task_cx = TaskContext::goto_restore(init_app_cx(i));
@@ -151,16 +151,23 @@ impl TaskManager {
         inner.tasks[current].start_time
     }
 
-    fn get_syscall_times(&self) -> [u32; MAX_SYSCALL_NUM] {
+    fn get_syscall_map(&self) -> [u32; 5] {
         let inner = self.inner.exclusive_access();
         let current = inner.current_task;
-        inner.tasks[current].syscall_times
+        inner.tasks[current].syscall_map
     }
 
     fn add_syscall_times(&self, id: usize) {
         let mut inner = self.inner.exclusive_access();
         let current = inner.current_task;
-        inner.tasks[current].syscall_times[id] += 1;
+        inner.tasks[current].syscall_map[match id {
+            SYSCALL_WRITE => 0,
+            SYSCALL_EXIT => 1,
+            SYSCALL_YIELD => 2,
+            SYSCALL_GET_TIME => 3,
+            SYSCALL_TASK_INFO => 4,
+            _ => unimplemented!(),
+        }] += 1;
     }
 }
 
@@ -203,10 +210,10 @@ pub fn get_start_time() -> usize {
     TASK_MANAGER.get_start_time()
 }
 
-pub fn get_syscall_times() -> [u32; MAX_SYSCALL_NUM] {
-    TASK_MANAGER.get_syscall_times()
+pub fn get_syscall_map() -> [u32; 5] {
+    TASK_MANAGER.get_syscall_map()
 }
 
-pub fn add_syscall_times(id: usize) { 
+pub fn add_syscall_times(id: usize) {
     TASK_MANAGER.add_syscall_times(id)
 }
